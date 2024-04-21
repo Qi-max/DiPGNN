@@ -21,8 +21,8 @@ class Bond2AtomBlock(layers.Layer):
             layers.BatchNormalization()])
 
         self.atom_residual_layers = Sequential([
-            ResidualLayer(hidden_size, activation=activation, use_bias=True, kernel_initializer=kernel_initializer),
-            ResidualLayer(hidden_size, activation=activation, use_bias=True, kernel_initializer=kernel_initializer)])
+            ResidualLayer(hidden_size, activation=activation, use_bias=True, kernel_initializer=kernel_initializer, name="b2a_residual_layer_1"),
+            ResidualLayer(hidden_size, activation=activation, use_bias=True, kernel_initializer=kernel_initializer, name="b2a_residual_layer_2")])
 
     def call(self, atom_embedding, bond_embedding, indices_i, indices_j):
         atom_embedding_i = tf.gather(atom_embedding, indices_i)

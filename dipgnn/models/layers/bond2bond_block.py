@@ -40,8 +40,9 @@ class Bond2BondBlock(layers.Layer):
 
         self.residual_layers = list()
         for i in range(num_b2b_res_layers):
-            self.residual_layers.append(
-                ResidualLayer(hidden_size, activation=activation, use_bias=True, kernel_initializer=kernel_initializer))
+            self.residual_layers.append(ResidualLayer(
+                hidden_size, activation=activation, use_bias=True,
+                kernel_initializer=kernel_initializer, name="b2b_residual_layer_{}".format(i)))
         self.residual_layers = Sequential(self.residual_layers)
 
     def call(self, bond_embedding,
@@ -51,12 +52,12 @@ class Bond2BondBlock(layers.Layer):
         bond_embedding_kji_kj = tf.gather(bond_embedding, dist_kji_kj_expand_to_angle)
         bond_embedding_kji_ji = tf.gather(bond_embedding, dist_kji_ji_expand_to_angle)
         bond_kji_updated = self.bond_kj_fc_layers(tf.concat([bond_embedding_kji_kj, bond_embedding_kji_ji], axis=-1))
-        angle_kji_attentions = self.angle_kji_attention_layers(sbf_kj)
+        angle_kji_attentions = self.angle_ijk_attention_layers(sbf_kj)
 
         bond_embedding_jim_im = tf.gather(bond_embedding, dist_jim_im_expand_to_angle)
         bond_embedding_jim_ji = tf.gather(bond_embedding, dist_jim_ji_expand_to_angle)
         bond_jim_updated = self.bond_im_fc_layers(tf.concat([bond_embedding_jim_im, bond_embedding_jim_ji], axis=-1))
-        angle_jim_attentions = self.angle_jim_attention_layers(sbf_im)
+        angle_jim_attentions = self.angle_ijm_attention_layers(sbf_im)
 
         num_bonds = tf.shape(bond_embedding)[0]
         bond_embedding += \

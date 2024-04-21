@@ -40,9 +40,6 @@ class BaseClassificationTrainer:
         else:
             self.backup_vars = None
 
-        self.acc_func = tf.keras.metrics.Accuracy()
-        self.recall_func = tf.keras.metrics.Recall()
-        self.precision_func = tf.keras.metrics.Precision()
         self.auc_func = tf.keras.metrics.AUC()
 
     def update_weights(self, loss, gradient_tape):
@@ -77,20 +74,8 @@ class BaseClassificationTrainer:
             raw_preds = self.model(inputs, validation_test=False, training=True)
             preds = tf.nn.sigmoid(raw_preds) if use_sigmoid else tf.nn.softmax(raw_preds)
 
-            self.acc_func.update_state(targets[:, 0], preds[:, 0])
-            self.recall_func.update_state(targets[:, 0], preds[:, 0])
-            self.precision_func.update_state(targets[:, 0], preds[:, 0])
             self.auc_func.update_state(targets[:, 0], preds[:, 0])
-
-            acc = self.acc_func.result()
-            recall = self.recall_func.result()
-            precision = self.precision_func.result()
             auc = self.auc_func.result()
-            f1 = 2 * precision * recall / (precision + recall)
-
-            self.acc_func.reset_states()
-            self.recall_func.reset_states()
-            self.precision_func.reset_states()
             self.auc_func.reset_states()
 
             if use_sigmoid:
@@ -99,7 +84,7 @@ class BaseClassificationTrainer:
                 loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(targets, raw_preds))
 
         self.update_weights(loss, tape)
-        metrics.update_state(loss, acc, recall, precision, auc, f1, 1)
+        metrics.update_state(loss, auc, 1)
         return loss, targets, preds
 
     @tf.function
@@ -109,20 +94,8 @@ class BaseClassificationTrainer:
         raw_preds = self.model(inputs, validation_test=True, training=False)
         preds = tf.nn.sigmoid(raw_preds) if use_sigmoid else tf.nn.softmax(raw_preds)
 
-        self.acc_func.update_state(targets[:, 0], preds[:, 0])
-        self.recall_func.update_state(targets[:, 0], preds[:, 0])
-        self.precision_func.update_state(targets[:, 0], preds[:, 0])
         self.auc_func.update_state(targets[:, 0], preds[:, 0])
-
-        acc = self.acc_func.result()
-        recall = self.recall_func.result()
-        precision = self.precision_func.result()
         auc = self.auc_func.result()
-        f1 = 2 * precision * recall / (precision + recall)
-
-        self.acc_func.reset_states()
-        self.recall_func.reset_states()
-        self.precision_func.reset_states()
         self.auc_func.reset_states()
 
         if use_sigmoid:
@@ -130,5 +103,5 @@ class BaseClassificationTrainer:
         else:
             loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(targets, raw_preds))
 
-        metrics.update_state(loss, acc, recall, precision, auc, f1, 1)
+        metrics.update_state(loss, auc, 1)
         return loss, targets, preds

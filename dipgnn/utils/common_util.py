@@ -1,6 +1,9 @@
 import argparse
 import logging
+import importlib
+from pathlib import Path
 import tensorflow as tf
+from dipgnn.utils.register import registers
 
 
 class CommonArgs():
@@ -37,6 +40,7 @@ class CommonArgs():
         add_arg('--target_type', default="atom", type=str, help='structure, atom or bond')
         add_arg('--target_col', type=str, default="targets", help='target_col')
         add_arg('--target_name', type=str, default="", help='target_name')
+        add_arg('--num_targets', type=int, default=2, help='num_targets')
 
         add_arg('--num_layers', type=int, default=3, help='num_layers')
 
@@ -84,6 +88,46 @@ class CommonArgs():
 
         self.args = self.parser.parse_args()
         logging.info("Common args is: {}".format(self.args))
+
+def _import_local_file(path: Path, *, project_root: Path) -> None:
+    """
+    Imports a Python file as a module
+
+    :param path: The path to the file to import
+    :type path: Path
+    :param project_root: The root directory of the project (i.e., the "ocp" folder)
+    :type project_root: Path
+    """
+
+    path = path.resolve()
+    project_root = project_root.resolve()
+
+    module_name = ".".join(
+        path.absolute()
+        .relative_to(project_root.absolute())
+        .with_suffix("")
+        .parts
+    )
+    logging.debug(f"Resolved module name of {path} to {module_name}")
+    importlib.import_module(module_name)
+
+
+# Copied from https://github.com/facebookresearch/mmf/blob/master/mmf/utils/env.py#L134.
+def setup_imports():
+    # First, check if imports are already setup
+    if registers.already_setup:
+        return
+
+    try:
+        project_root = Path(__file__).resolve().absolute().parent.parent.parent
+        logging.info(f"Project root: {project_root}")
+
+        import_keys = ["data", "models", "tasks"]
+        for key in import_keys:
+            for f in (project_root / "dipgnn" / key).rglob("*.py"):
+                _import_local_file(f, project_root=project_root)
+    finally:
+        registers.already_setup = True
 
 
 class LinearWarmupExponentialDecay(tf.optimizers.schedules.LearningRateSchedule):

@@ -63,7 +63,7 @@ class DataContainer(object):
 
         for graph_data_file in graph_data_file_list:
             try:
-                with open(graph_data_file, "rb") as f:
+                with open(graph_data_file[0], "rb") as f:
                     graph_data = pickle.load(f)
                     graph_data_list.append(graph_data)
             except Exception:

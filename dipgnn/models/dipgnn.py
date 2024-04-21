@@ -95,7 +95,7 @@ class DiPGNN(tf.keras.Model):
             self.atom2bond_blocks.append(
                 Atom2BondBlock(hidden_size, activation=activation, kernel_initializer=kernel_initializer))
         self.readout_layer = ReadoutLayer(
-            hidden_size, num_readout_fc_layers, num_targets, activation=activation, kernel_initializer=kernel_initializer)
+            hidden_size, num_readout_fc_layers, num_targets=num_targets, activation=activation, kernel_initializer=kernel_initializer)
 
     def call(self, inputs, validation_test=False):
         atom_features, indices_i, indices_j = \

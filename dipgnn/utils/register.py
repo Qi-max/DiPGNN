@@ -47,13 +47,21 @@ class Register:
 
 class Registers():
     """All module registers."""
-    def __init__(self):
-        raise RuntimeError("Registries is not intended to be instantiated")
-
     task = Register('task')
     model = Register('model')
     data_container = Register('data_container')
     data_provider = Register('data_provider')
+
+    def __init__(self):
+        self._already_setup = False
+
+    @property
+    def already_setup(self):
+        return self._already_setup
+
+    @already_setup.setter
+    def already_setup(self, value):
+        self._already_setup = value
 
 
 registers = Registers()

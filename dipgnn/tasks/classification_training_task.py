@@ -14,7 +14,7 @@ from dipgnn.utils.register import registers
 
 @registers.task.register("classification_training_task")
 class ClassificationTrainingTask:
-    def __int__(
+    def __init__(
         self,
         args
     ):
@@ -29,6 +29,7 @@ class ClassificationTrainingTask:
         self.initial_data_provider()
         self.initial_dataset()
         self.initial_model()
+        self.initial_trainer()
 
     def initial_paths(self):
         # Used for creating a random "unique" id for this run
@@ -38,11 +39,10 @@ class ClassificationTrainingTask:
         # Create output path. A unique directory name is created for this run based on the input
         if self.args.ckpt_path is None:
             self.output_path = "{}/{}_{}_{}{}".format(
-                self.args.base_output_path, datetime.now().strftime("%Y%m%d_%H%M%S"),
+                self.args.output_path, datetime.now().strftime("%Y%m%d_%H%M%S"),
                 id_generator(), self.args.target_name, self.args.comment)
         else:
             self.output_path = self.args.ckpt_path
-        logging.info(f"self.output_path: {self.output_path}")
 
         if not os.path.exists(self.output_path):
             os.makedirs(self.output_path)
@@ -78,6 +78,7 @@ class ClassificationTrainingTask:
         tf.get_logger().setLevel('WARN')
         tf.autograph.set_verbosity(2)
         self.summary_writer = tf.summary.create_file_writer(self.logger_path)
+        logging.info(f"Output path is: {self.output_path}")
 
     def initial_metrics(self):
         self.training_metrics = ClassificationMetrics('train', ["targets"])
@@ -88,11 +89,11 @@ class ClassificationTrainingTask:
         graph_data_file_list = pd.read_csv(self.args.graph_data_file_df, index_col=0).values
         logging.info("file length: {}".format(len(graph_data_file_list)))
 
-        self.data_container = registers.data_container.get_class(args.data_container_name).from_files(
+        self.data_container = registers.data_container.get_class(self.args.data_container_name).from_files(
             graph_data_file_list=graph_data_file_list,
             targets_data_file=self.args.targets_data_file,
             target_type=self.args.target_type,
-            task=self.args.task,
+            task_type=self.args.task_type,
             target_col=self.args.target_col)
         logging.info("Initial data_container end.")
 
@@ -147,17 +148,16 @@ class ClassificationTrainingTask:
             feature_add_or_concat=self.args.feature_add_or_concat,
             logging=logging)
         logging.info("Initial model end.")
-        logging.info("model summary is: {}".format(self.model.summary()))
 
     def initial_trainer(self):
-        self.trainer = registers.model.get_class(self.args.trainer_name)(
+        self.trainer = registers.task.get_class(self.args.trainer_name)(
             model=self.model,
             learning_rate=self.args.learning_rate,
             warmup_steps=self.args.warmup_steps,
             decay_steps=self.args.decay_steps,
             decay_rate=self.args.decay_rate,
             ema_decay=self.args.ema_decay,
-            max_grad_norm=self.max_grad_norm)
+            max_grad_norm=self.args.max_grad_norm)
         logging.info("Initial trainer end.")
 
     def run(self):
@@ -208,10 +208,7 @@ class ClassificationTrainingTask:
                 # Perform training step
                 _, train_targets, train_preds = self.trainer.train_on_batch(
                     self.train_dataset,
-                    self.training_metrics,
-                    l2_loss_decay=self.args.l2_loss_decay,
-                    use_huber_loss=self.args.use_huber_loss,
-                    huber_delta=self.args.huber_delta)
+                    self.training_metrics)
 
                 train_targets_list += train_targets[:, 0].numpy().tolist()
                 train_preds_list += train_preds[:, 0].numpy().tolist()
@@ -287,30 +284,14 @@ class ClassificationTrainingTask:
                                 f"Loss: train={self.training_metrics.loss:.6f}, "
                                     f"validation={self.validation_metrics.loss:.6f}, "
                                     f"test={self.test_metrics.loss:.6f}; "
-                                f"ACC: train={self.training_metrics.mean_acc:.6f}, "
-                                    f"validation={self.validation_metrics.mean_acc:.6f}, "
-                                    f"test={self.test_metrics.mean_acc:.6f};"
-                                f"RECALL: train={self.training_metrics.mean_recall:.6f}, "
-                                    f"validation={self.validation_metrics.mean_recall:.6f}, "
-                                    f"test={self.test_metrics.mean_recall:.6f};"
-                                f"PRECISION: train={self.training_metrics.mean_precision:.6f}, "
-                                    f"validation={self.validation_metrics.mean_precision:.6f}, "
-                                    f"test={self.test_metrics.mean_precision:.6f};"
                                 f"AUC: train={self.training_metrics.mean_auc:.6f}, "
                                     f"validation={self.validation_metrics.mean_auc:.6f}, "
-                                    f"test={self.test_metrics.mean_auc:.6f};"
-                                f"F1: train={self.training_metrics.mean_f1:.6f}, "
-                                    f"validation={self.validation_metrics.mean_f1:.6f}, "
-                                    f"test={self.test_metrics.mean_f1:.6f}.\n")
+                                    f"test={self.test_metrics.mean_auc:.6f}.\n")
 
                         with open(os.path.join(self.best_path, 'best_scores.csv'), "a") as file:
                             file.write(
                                 f"{step},{epoch},{self.training_metrics.loss:.6f},{self.validation_metrics.loss:.6f},{self.test_metrics.loss:.6f},"
-                                f"{self.training_metrics.mean_acc:.6f},{self.validation_metrics.mean_acc:.6f},{self.test_metrics.mean_acc:.6f},"
-                                f"{self.training_metrics.mean_recall:.6f},{self.validation_metrics.mean_recall:.6f},{self.test_metrics.mean_recall:.6f},"
-                                f"{self.training_metrics.mean_precision:.6f},{self.validation_metrics.mean_precision:.6f},{self.test_metrics.mean_precision:.6f},"
-                                f"{self.training_metrics.mean_auc:.6f},{self.validation_metrics.mean_auc:.6f},{self.test_metrics.mean_auc:.6f},"
-                                f"{self.training_metrics.mean_f1:.6f},{self.validation_metrics.mean_f1:.6f},{self.test_metrics.mean_f1:.6f}\n")
+                                f"{self.training_metrics.mean_auc:.6f},{self.validation_metrics.mean_auc:.6f},{self.test_metrics.mean_auc:.6f}\n")
 
                     else:
                         if epoch > metrics_best['epoch'] + self.args.early_stopping_epochs:
@@ -327,21 +308,9 @@ class ClassificationTrainingTask:
                         f"Loss: train={self.training_metrics.loss:.6f}, "
                             f"validation={self.validation_metrics.loss:.6f}, "
                             f"test={self.test_metrics.loss:.6f}; "
-                        f"ACC: train={self.training_metrics.mean_acc:.6f}, "
-                            f"validation={self.validation_metrics.mean_acc:.6f}, "
-                            f"test={self.test_metrics.mean_acc:.6f};"
-                        f"RECALL: train={self.training_metrics.mean_recall:.6f}, "
-                            f"validation={self.validation_metrics.mean_recall:.6f}, "
-                            f"test={self.test_metrics.mean_recall:.6f};"
-                        f"PRECISION: train={self.training_metrics.mean_precision:.6f}, "
-                            f"validation={self.validation_metrics.mean_precision:.6f}, "
-                            f"test={self.test_metrics.mean_precision:.6f};"
                         f"AUC: train={self.training_metrics.mean_auc:.6f}, "
                             f"validation={self.validation_metrics.mean_auc:.6f}, "
-                            f"test={self.test_metrics.mean_auc:.6f};"
-                        f"F1: train={self.training_metrics.mean_f1:.6f}, "
-                            f"validation={self.validation_metrics.mean_f1:.6f}, "
-                            f"test={self.test_metrics.mean_f1:.6f}\n")
+                            f"test={self.test_metrics.mean_auc:.6f}\n")
 
                     self.training_metrics.write()
                     self.validation_metrics.write()
@@ -353,3 +322,5 @@ class ClassificationTrainingTask:
 
                     # Restore backup variables
                     self.trainer.restore_variable_backups()
+                if step == step_initial:
+                    self.model.summary()

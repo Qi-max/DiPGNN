@@ -90,7 +90,7 @@ class DataProvider:
         elif data_container.atom_feature_scheme == "specie_onehot":
             self.shapes_input['atom_features_list'] = [None]   # 注意：specie_onehot feature的内部没有小括号
 
-        self.shape_target = [None, 1 if data_container.task == "regression" else 2]
+        self.shape_target = [None, 1 if data_container.task_type == "regression" else 2]
 
     def get_train_validation_test_num(self):
         """get_train_validation_test_num"""
