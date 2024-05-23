@@ -90,14 +90,14 @@ class DataContainer(object):
             cls,
             structure_list=None,
             targets_list=None,
-            source_ids=None,
             target_type="atom",
+            source_ids=None,
             task_type="regression",
-            neighbor_scheme="external",
-            neighbor_cutoff=4.0,
+            neighbor_scheme="pmg_cutoff",
+            neighbor_cutoff=4.5,
             external_neighbors_list=None,
             bond_distances_list=None,
-            atom_feature_scheme="external",
+            atom_feature_scheme="specie_onehot",
             external_atom_features_list=None,
             specie_to_features=None,  # for example, {"Al1": 0, "Sm1": 1}
             output_graph_data=True,
@@ -113,20 +113,20 @@ class DataContainer(object):
         for structure_id, structure in enumerate(structure_list):
             atom_features_list = list()
             dist_list = list()
-            angle_kj_list = list()
-            angle_im_list = list()
+            map_ij_to_bond_id = dict()
+
             id_i_list = list()
             id_j_list = list()
-            angle_kj_reduce_to_dist_list = list()
-            angle_im_reduce_to_dist_list = list()
 
-            map_ji_to_dist_id = dict()
-            dist_kj_expand_to_angle_meta_list = list()
-            dist_im_expand_to_angle_meta_list = list()
-            dist_kj_ji_expand_to_angle_meta_list = list()
-            dist_im_ji_expand_to_angle_meta_list = list()
+            angle_mij_list = list()
+            bond_mi_id_for_angle_mij_list = list()
+            bond_ij_id_for_angle_mij_list = list()
 
-            dist_id = 0
+            angle_kji_list = list()
+            bond_kj_id_for_angle_kji_list = list()
+            bond_ij_id_for_angle_kji_list = list()
+
+            bond_id = 0
             nn_infos = list()
             if neighbor_scheme == "external":
                 for i in range(len(structure)):
@@ -174,7 +174,7 @@ class DataContainer(object):
                 if atom_feature_scheme == "external":
                     i_feature = external_atom_features_list[structure_id][i]
                 elif atom_feature_scheme == "specie_onehot":
-                    i_feature = specie_to_features[structure.sites[i].species.alphabetical_formula]
+                    i_feature = specie_to_features[structure.sites[i].specie.symbol]
                 else:
                     raise ValueError("No support for atom_feature_scheme = {}".format(atom_feature_scheme))
 
@@ -197,12 +197,28 @@ class DataContainer(object):
                     else:
                         raise ValueError("No support for neighbor_scheme = {}".format(neighbor_scheme))
 
-                    map_ji_to_dist_id["{}_{}".format(j, i)] = dist_id
+                    map_ij_to_bond_id["{}_{}".format(i, j)] = bond_id
 
                     id_i_list.append(i)
                     id_j_list.append(j)
 
                     dist_list.append(dist)
+
+
+                    # m: neighbors of i
+                    ms = nn_infos[i]["nn_ids"]
+                    m_coords = nn_infos[i]["nn_coords_image"]
+                    for m, m_coords in zip(ms, m_coords):
+                        if (m != j):
+                            # Angle: im vs ij
+                            vector1 = j_coords - i_coords
+                            vector2 = m_coords - i_coords
+                            angle_mij = DataContainer._calculate_neighbor_angles(vector1, vector2)
+                            angle_mij_list.append(angle_mij)
+
+                            bond_mi_id_for_angle_mij_list.append("{}_{}".format(m, i))
+                            bond_ij_id_for_angle_mij_list.append(bond_id)
+
 
                     # k: neighbors of j
                     ks = nn_infos[j]["nn_ids"]
@@ -223,37 +239,19 @@ class DataContainer(object):
 
                     for k, k_coords in zip(ks, ks_coords):
                         if (k != i) and (k != j):
-                            # Angle: ij vs jk
-                            vector1 = i_coords - j_coords
+                            # Angle: ij vs kj
+                            vector1 = j_coords - i_coords
                             vector2 = j_coords - k_coords
-                            angle_kj_ji = DataContainer._calculate_neighbor_angles(vector1, vector2)
-                            angle_kj_list.append(angle_kj_ji)
+                            angle_kji = DataContainer._calculate_neighbor_angles(vector1, vector2)
+                            angle_kji_list.append(angle_kji)
 
-                            dist_kj_expand_to_angle_meta_list.append("{}_{}".format(k, j))
-                            dist_kj_ji_expand_to_angle_meta_list.append("{}_{}".format(j, i))
-                            angle_kj_reduce_to_dist_list.append(dist_id)
+                            bond_kj_id_for_angle_kji_list.append("{}_{}".format(k, j))
+                            bond_ij_id_for_angle_kji_list.append(bond_id)
 
-                    # m: neighbors of i
-                    ms = nn_infos[i]["nn_ids"]
-                    m_coords = nn_infos[i]["nn_coords_image"]
-                    for m, m_coords in zip(ms, m_coords):
-                        if (m != j):
-                            # Angle: im vs ji
-                            vector1 = i_coords - j_coords
-                            vector2 = i_coords - m_coords
-                            angle_im_ji = DataContainer._calculate_neighbor_angles(vector1, vector2)
-                            angle_im_list.append(angle_im_ji)
+                    bond_id += 1
 
-                            dist_im_expand_to_angle_meta_list.append("{}_{}".format(m, i))
-                            dist_im_ji_expand_to_angle_meta_list.append("{}_{}".format(j, i))
-
-                            angle_im_reduce_to_dist_list.append(dist_id)
-                    dist_id += 1
-
-            dist_kj_expand_to_angle_list = list(map(lambda x: map_ji_to_dist_id[x], dist_kj_expand_to_angle_meta_list))
-            dist_im_expand_to_angle_list = list(map(lambda x: map_ji_to_dist_id[x], dist_im_expand_to_angle_meta_list))
-            dist_kj_ji_expand_to_angle_list = list(map(lambda x: map_ji_to_dist_id[x], dist_kj_ji_expand_to_angle_meta_list))
-            dist_im_ji_expand_to_angle_list = list(map(lambda x: map_ji_to_dist_id[x], dist_im_ji_expand_to_angle_meta_list))
+            bond_mi_id_for_angle_mij_list = list(map(lambda x: map_ij_to_bond_id[x], bond_mi_id_for_angle_mij_list))
+            bond_kj_id_for_angle_kji_list = list(map(lambda x: map_ij_to_bond_id[x], bond_kj_id_for_angle_kji_list))
 
             # now deal with targets
             targets = targets_list[structure_id]
@@ -272,31 +270,29 @@ class DataContainer(object):
                     raise ValueError("Targets_list of atom-level dataset: "
                                      "Only supports list of lists or list of dicts")
 
-            elif target_type == "bond":
+            elif target_type == "path":
                 if isinstance(targets, dict):
                     bond_indices = ["{}_{}".format(x, y) for x, y in targets.keys()]
-                    reduce_to_target_indices = list(map(lambda x: map_ji_to_dist_id[x], bond_indices))
+                    reduce_to_target_indices = list(map(lambda x: map_ij_to_bond_id[x], bond_indices))
                     targets = list(targets.values())
                 else:
-                    raise ValueError("Targets_list of bond-level dataset: "
+                    raise ValueError("Targets_list of path-level dataset: "
                                      "Only supports list of dicts, with the key as tuple of bond indices")
 
             else:
-                raise ValueError("Only supports structure, atom or bond-level targets")
+                raise ValueError("Only supports structure, atom or path-level targets")
 
             graph_data_dict = {
                 "atom_features_list": np.array(atom_features_list).astype(np.float32 if atom_feature_scheme=="external" else np.int32),
                 "dist_list": np.array(dist_list).astype(np.float32),
-                "angle_kj_list": np.array(angle_kj_list).astype(np.float32),
-                "angle_im_list": np.array(angle_im_list).astype(np.float32),
                 "id_i_list": np.array(id_i_list).astype(np.int32),
                 "id_j_list": np.array(id_j_list).astype(np.int32),
-                "dist_kj_expand_to_angle_list": np.array(dist_kj_expand_to_angle_list).astype(np.int32),
-                "dist_im_expand_to_angle_list": np.array(dist_im_expand_to_angle_list).astype(np.int32),
-                "dist_kj_ji_expand_to_angle_list": np.array(dist_kj_ji_expand_to_angle_list).astype(np.int32),
-                "dist_im_ji_expand_to_angle_list": np.array(dist_im_ji_expand_to_angle_list).astype(np.int32),
-                "angle_kj_reduce_to_dist_list": np.array(angle_kj_reduce_to_dist_list).astype(np.int32),
-                "angle_im_reduce_to_dist_list": np.array(angle_im_reduce_to_dist_list).astype(np.int32),
+                "angle_mij_list": np.array(angle_mij_list).astype(np.float32),
+                "angle_kji_list": np.array(angle_kji_list).astype(np.float32),
+                "bond_mi_id_for_angle_mij_list": np.array(bond_mi_id_for_angle_mij_list).astype(np.int32),
+                "bond_ij_id_for_angle_mij_list": np.array(bond_ij_id_for_angle_mij_list).astype(np.int32),
+                "bond_kj_id_for_angle_kji_list": np.array(bond_kj_id_for_angle_kji_list).astype(np.int32),
+                "bond_ij_id_for_angle_kji_list": np.array(bond_ij_id_for_angle_kji_list).astype(np.int32),
                 "n_structures": 1,
             }
             target_data_dict = {
@@ -357,62 +353,56 @@ class DataContainer(object):
         else:
             atom_features_list = list()
             dist_list = list()
-            angle_kj_list = list()
-            angle_im_list = list()
+            angle_kji_list = list()
+            angle_mij_list = list()
             id_i_list = list()
             id_j_list = list()
-            dist_kj_expand_to_angle_list = list()
-            dist_im_expand_to_angle_list = list()
-            dist_kj_ji_expand_to_angle_list = list()
-            dist_im_ji_expand_to_angle_list = list()
-            angle_kj_reduce_to_dist_list = list()
-            angle_im_reduce_to_dist_list = list()
+            bond_mi_id_for_angle_mij_list = list()
+            bond_ij_id_for_angle_mij_list = list()
+            bond_kj_id_for_angle_kji_list = list()
+            bond_ij_id_for_angle_kji_list = list()
             reduce_to_target_indices = list()
             targets = list()
 
             atom_num = 0
-            dist_num = 0
+            bond_num = 0
 
             for idx, (graph_data_dict, target_data_dict) in enumerate(zip(graph_data_slice, target_data_slice)):
                 atom_features_list.append(graph_data_dict["atom_features_list"])
                 dist_list.append(graph_data_dict["dist_list"])
-                angle_kj_list.append(graph_data_dict["angle_kj_list"])
-                angle_im_list.append(graph_data_dict["angle_im_list"])
+                angle_kji_list.append(graph_data_dict["angle_kji_list"])
+                angle_mij_list.append(graph_data_dict["angle_mij_list"])
                 id_i_list.append(graph_data_dict["id_i_list"] + atom_num)
                 id_j_list.append(graph_data_dict["id_j_list"] + atom_num)
-                dist_kj_expand_to_angle_list.append(graph_data_dict["dist_kj_expand_to_angle_list"] + dist_num)
-                dist_im_expand_to_angle_list.append(graph_data_dict["dist_im_expand_to_angle_list"] + dist_num)
-                dist_kj_ji_expand_to_angle_list.append(graph_data_dict["dist_kj_ji_expand_to_angle_list"] + dist_num)
-                dist_im_ji_expand_to_angle_list.append(graph_data_dict["dist_im_ji_expand_to_angle_list"] + dist_num)
-                angle_kj_reduce_to_dist_list.append(graph_data_dict["angle_kj_reduce_to_dist_list"] + dist_num)
-                angle_im_reduce_to_dist_list.append(graph_data_dict["angle_im_reduce_to_dist_list"] + dist_num)
+                bond_mi_id_for_angle_mij_list.append(graph_data_dict["bond_mi_id_for_angle_mij_list"] + bond_num)
+                bond_ij_id_for_angle_mij_list.append(graph_data_dict["bond_ij_id_for_angle_mij_list"] + bond_num)
+                bond_kj_id_for_angle_kji_list.append(graph_data_dict["bond_kj_id_for_angle_kji_list"] + bond_num)
+                bond_ij_id_for_angle_kji_list.append(graph_data_dict["bond_ij_id_for_angle_kji_list"] + bond_num)
 
                 if target_type == "structure":
                     reduce_to_target_indices.append(target_data_dict["reduce_to_target_indices"] + idx)
                 elif target_type == "atom":
                     reduce_to_target_indices.append(target_data_dict["reduce_to_target_indices"] + atom_num)
-                elif target_type == "bond":
-                    reduce_to_target_indices.append(target_data_dict["reduce_to_target_indices"] + dist_num)
+                elif target_type == "path":
+                    reduce_to_target_indices.append(target_data_dict["reduce_to_target_indices"] + bond_num)
 
                 targets.append(target_data_dict[target_col])
 
                 atom_num += len(graph_data_dict["atom_features_list"])
-                dist_num += len(graph_data_dict["dist_list"])
+                bond_num += len(graph_data_dict["dist_list"])
 
             # return a dict，containing input and target
             input_target_data_dict_for_slice = {
                 "atom_features_list": np.concatenate(atom_features_list),
                 "dist_list": np.concatenate(dist_list),
-                "angle_kj_list": np.concatenate(angle_kj_list),
-                "angle_im_list": np.concatenate(angle_im_list),
+                "angle_kji_list": np.concatenate(angle_kji_list),
+                "angle_mij_list": np.concatenate(angle_mij_list),
                 "id_i_list": np.concatenate(id_i_list),
                 "id_j_list": np.concatenate(id_j_list),
-                "dist_kj_expand_to_angle_list": np.concatenate(dist_kj_expand_to_angle_list),
-                "dist_im_expand_to_angle_list": np.concatenate(dist_im_expand_to_angle_list),
-                "dist_kj_ji_expand_to_angle_list": np.concatenate(dist_kj_ji_expand_to_angle_list),
-                "dist_im_ji_expand_to_angle_list": np.concatenate(dist_im_ji_expand_to_angle_list),
-                "angle_kj_reduce_to_dist_list": np.concatenate(angle_kj_reduce_to_dist_list),
-                "angle_im_reduce_to_dist_list": np.concatenate(angle_im_reduce_to_dist_list),
+                "bond_mi_id_for_angle_mij_list": np.concatenate(bond_mi_id_for_angle_mij_list),
+                "bond_ij_id_for_angle_mij_list": np.concatenate(bond_ij_id_for_angle_mij_list),
+                "bond_kj_id_for_angle_kji_list": np.concatenate(bond_kj_id_for_angle_kji_list),
+                "bond_ij_id_for_angle_kji_list": np.concatenate(bond_ij_id_for_angle_kji_list),
                 "n_structures": n_structures,
                 "reduce_to_target_indices": np.concatenate(reduce_to_target_indices),
             }
@@ -452,14 +442,13 @@ class DataContainer(object):
     @staticmethod
     def int_keys():
         return ['id_i_list', 'id_j_list',
-                'dist_kj_expand_to_angle_list', 'dist_im_expand_to_angle_list',
-                'dist_kj_ji_expand_to_angle_list', 'dist_im_ji_expand_to_angle_list',
-                'angle_kj_reduce_to_dist_list', 'angle_im_reduce_to_dist_list',
+                'bond_mi_id_for_angle_mij_list', 'bond_ij_id_for_angle_mij_list',
+                'bond_kj_id_for_angle_kji_list', 'bond_ij_id_for_angle_kji_list',
                 "reduce_to_target_indices"]
 
     @staticmethod
     def float_keys():
-        return ['dist_list', 'angle_kj_list', 'angle_im_list']
+        return ['dist_list', 'angle_kji_list', 'angle_mij_list']
 
     @staticmethod
     def int_number_keys():

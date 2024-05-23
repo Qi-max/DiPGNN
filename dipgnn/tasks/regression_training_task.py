@@ -4,13 +4,13 @@ import logging
 import tensorflow as tf
 import numpy as np
 import pandas as pd
-from dipgnn.utils.classification_metrics import ClassificationMetrics
 from dipgnn.utils.register import registers
 from dipgnn.tasks.base_training_task import BaseTrainingTask
+from dipgnn.utils.regression_metrics import RegressionMetrics
 
 
-@registers.task.register("classification_training_task")
-class ClassificationTrainingTask(BaseTrainingTask):
+@registers.task.register("regression_training_task")
+class RegressionTrainingTask(BaseTrainingTask):
     def __init__(
         self,
         args
@@ -18,21 +18,9 @@ class ClassificationTrainingTask(BaseTrainingTask):
         super().__init__(args=args)
 
     def initial_metrics(self):
-        self.training_metrics = ClassificationMetrics('train', ["targets"])
-        self.validation_metrics = ClassificationMetrics('validation', ["targets"])
-        self.test_metrics = ClassificationMetrics('test', ["targets"])
-
-    def initial_trainer(self):
-        self.trainer = registers.task.get_class(self.args.trainer_name)(
-            model=self.model,
-            learning_rate=self.args.learning_rate,
-            warmup_steps=self.args.warmup_steps,
-            decay_steps=self.args.decay_steps,
-            decay_rate=self.args.decay_rate,
-            ema_decay=self.args.ema_decay,
-            max_grad_norm=self.args.max_grad_norm,
-            use_sigmoid=self.args.use_sigmoid,)
-        logging.info("Initial trainer end.")
+        self.training_metrics = RegressionMetrics('train', ["targets"])
+        self.validation_metrics = RegressionMetrics('validation', ["targets"])
+        self.test_metrics = RegressionMetrics('test', ["targets"])
 
     def run(self):
         num_train, num_validation, num_test = self.data_provider.get_train_validation_test_num()
@@ -69,8 +57,8 @@ class ClassificationTrainingTask(BaseTrainingTask):
         with self.summary_writer.as_default():
             steps_per_epoch = int(np.ceil(num_train / self.args.batch_size))
             step_initial = 1 if ckpt_restored is not None else ckpt.step.numpy()
-
             first_save_model = True
+
             for step in range(step_initial, self.args.num_steps + 1):
                 # Update step number
                 ckpt.step.assign(step)
@@ -95,19 +83,19 @@ class ClassificationTrainingTask(BaseTrainingTask):
                     for i in range(int(np.ceil(num_validation / self.args.batch_size))):
                         _, validation_targets, validation_preds = self.trainer.test_on_batch(
                             self.validation_dataset, self.validation_metrics)
-                        validation_targets_list += validation_targets[:, 0].numpy().tolist()
-                        validation_preds_list += validation_preds[:, 0].numpy().tolist()
-                    self.trainer.load_averaged_variables()
+                        validation_targets_list += self.data_container.target_normalizer.inverse_transform(validation_targets[:, 0].numpy().reshape(-1, 1)).reshape(-1).tolist()
+                        validation_preds_list += self.data_container.target_normalizer.inverse_transform(validation_preds[:, 0].numpy().reshape(-1, 1)).reshape(-1).tolist()
 
                     # Compute results on the test set
+                    self.trainer.load_averaged_variables()
                     for i in range(int(np.ceil(num_test / self.args.batch_size))):
                         _, test_targets, test_preds = self.trainer.test_on_batch(self.test_dataset, self.test_metrics)
-                        test_targets_list += test_targets[:, 0].numpy().tolist()
-                        test_preds_list += test_preds[:, 0].numpy().tolist()
+                        test_targets_list += self.data_container.target_normalizer.inverse_transform(test_targets[:, 0].numpy().reshape(-1, 1)).reshape(-1).tolist()
+                        test_preds_list += self.data_container.target_normalizer.inverse_transform(test_preds[:, 0].numpy().reshape(-1, 1)).reshape(-1).tolist()
 
                     epoch = step // steps_per_epoch
                     # Update and save best result
-                    if self.validation_metrics.mean_auc > metrics_best['mean_auc_validation']:
+                    if self.validation_metrics.mean_r2 > metrics_best['mean_r2_validation']:
                         metrics_best['epoch'] = epoch
                         metrics_best.update(self.validation_metrics.result())
                         np.savez(self.best_loss_file, **metrics_best)
@@ -142,20 +130,37 @@ class ClassificationTrainingTask(BaseTrainingTask):
                                 "test_preds": test_preds_list,
                             }).to_csv(os.path.join(self.best_path, 'best_predict_test.csv'))
 
+
                         with open(os.path.join(self.best_path, 'best_logger.txt'), "a") as file:
                             file.write(
                                 f"{step}/{self.args.num_steps} (epoch {epoch}): "
                                 f"Loss: train={self.training_metrics.loss:.6f}, "
-                                f"validation={self.validation_metrics.loss:.6f}, "
-                                f"test={self.test_metrics.loss:.6f}; "
-                                f"AUC: train={self.training_metrics.mean_auc:.6f}, "
-                                f"validation={self.validation_metrics.mean_auc:.6f}, "
-                                f"test={self.test_metrics.mean_auc:.6f}.\n")
+                                    f"validation={self.validation_metrics.loss:.6f}, "
+                                    f"test={self.test_metrics.loss:.6f}; "
+                                f"MAE: train={self.training_metrics.mean_mae:.6f}, "
+                                    f"validation={self.validation_metrics.mean_mae:.6f}, "
+                                    f"test={self.test_metrics.mean_mae:.6f}; "
+                                f"MSE: train={self.training_metrics.mean_mse:.6f}, "
+                                    f"validation={self.validation_metrics.mean_mse:.6f}, "
+                                    f"test={self.test_metrics.mean_mse:.6f}; "
+                                f"RMSE: train={self.training_metrics.mean_rmse:.6f}, "
+                                    f"validation={self.validation_metrics.mean_rmse:.6f}, "
+                                    f"test={self.test_metrics.mean_rmse:.6f}; "
+                                f"R2: train={self.training_metrics.mean_r2:.6f}, "
+                                    f"validation={self.validation_metrics.mean_r2:.6f}, "
+                                    f"test={self.test_metrics.mean_r2:.6f}; "
+                                f"Pearson: train={self.training_metrics.mean_pearson:.6f}, "
+                                    f"validation={self.validation_metrics.mean_pearson:.6f}, "
+                                    f"test={self.test_metrics.mean_pearson:.6f}.\n")
 
                         with open(os.path.join(self.best_path, 'best_scores.csv'), "a") as file:
                             file.write(
                                 f"{step},{epoch},{self.training_metrics.loss:.6f},{self.validation_metrics.loss:.6f},{self.test_metrics.loss:.6f},"
-                                f"{self.training_metrics.mean_auc:.6f},{self.validation_metrics.mean_auc:.6f},{self.test_metrics.mean_auc:.6f}\n")
+                                f"{self.training_metrics.mean_mae:.6f},{self.validation_metrics.mean_mae:.6f},{self.test_metrics.mean_mae:.6f},"
+                                f"{self.training_metrics.mean_mse:.6f},{self.validation_metrics.mean_mse:.6f},{self.test_metrics.mean_mse:.6f},"
+                                f"{self.training_metrics.mean_rmse:.6f},{self.validation_metrics.mean_rmse:.6f},{self.test_metrics.mean_rmse:.6f},"
+                                f"{self.training_metrics.mean_r2:.6f},{self.validation_metrics.mean_r2:.6f},{self.test_metrics.mean_r2:.6f},"
+                                f"{self.training_metrics.mean_pearson:.6f},{self.validation_metrics.mean_pearson:.6f},{self.test_metrics.mean_pearson:.6f}\n")
 
                     else:
                         if epoch > metrics_best['epoch'] + self.args.early_stopping_epochs:
@@ -170,11 +175,23 @@ class ClassificationTrainingTask(BaseTrainingTask):
                     logging.info(
                         f"{step}/{self.args.num_steps} (epoch {epoch}): "
                         f"Loss: train={self.training_metrics.loss:.6f}, "
-                        f"validation={self.validation_metrics.loss:.6f}, "
-                        f"test={self.test_metrics.loss:.6f}; "
-                        f"AUC: train={self.training_metrics.mean_auc:.6f}, "
-                        f"validation={self.validation_metrics.mean_auc:.6f}, "
-                        f"test={self.test_metrics.mean_auc:.6f}\n")
+                            f"validation={self.validation_metrics.loss:.6f}, "
+                            f"test={self.test_metrics.loss:.6f}; "
+                        f"MAE: train={self.training_metrics.mean_mae:.6f}, "
+                            f"validation={self.validation_metrics.mean_mae:.6f}, "
+                            f"test={self.test_metrics.mean_mae:.6f}; "
+                        f"MSE: train={self.training_metrics.mean_mse:.6f}, "
+                            f"validation={self.validation_metrics.mean_mse:.6f}, "
+                            f"test={self.test_metrics.mean_mse:.6f}; "
+                        f"RMSE: train={self.training_metrics.mean_rmse:.6f}, "
+                            f"validation={self.validation_metrics.mean_rmse:.6f}, "
+                            f"test={self.test_metrics.mean_rmse:.6f}; "
+                        f"R2: train={self.training_metrics.mean_r2:.6f}, "
+                            f"validation={self.validation_metrics.mean_r2:.6f}, "
+                            f"test={self.test_metrics.mean_r2:.6f}; "
+                        f"Pearson: train={self.training_metrics.mean_pearson:.6f}, "
+                            f"validation={self.validation_metrics.mean_pearson:.6f}, "
+                            f"test={self.test_metrics.mean_pearson:.6f}.\n")
 
                     self.training_metrics.write()
                     self.validation_metrics.write()

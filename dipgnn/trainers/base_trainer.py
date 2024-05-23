@@ -2,10 +2,11 @@ import tensorflow as tf
 import tensorflow_addons as tfa
 from dipgnn.utils.register import registers
 from dipgnn.utils.common_util import LinearWarmupExponentialDecay
+from abc import ABC, abstractmethod
 
 
-@registers.task.register("base_classification_trainer")
-class BaseClassificationTrainer:
+@registers.task.register("base_trainer")
+class BaseTrainer(ABC):
     """
     Note: A significant portion of the code is adapted from dimenet (https://github.com/gasteigerjo/dimenet).
     """
@@ -40,8 +41,6 @@ class BaseClassificationTrainer:
         else:
             self.backup_vars = None
 
-        self.auc_func = tf.keras.metrics.AUC()
-
     def update_weights(self, loss, gradient_tape):
         grads = gradient_tape.gradient(loss, self.model.trainable_weights)
 
@@ -67,41 +66,10 @@ class BaseClassificationTrainer:
         for var, bck in zip(self.model.trainable_weights, self.backup_vars):
             var.assign(bck)
 
-    @tf.function
-    def train_on_batch(self, dataset_iter, metrics, use_sigmoid=False):
-        inputs, targets = next(dataset_iter)
-        with tf.GradientTape() as tape:
-            raw_preds = self.model(inputs, validation_test=False, training=True)
-            preds = tf.nn.sigmoid(raw_preds) if use_sigmoid else tf.nn.softmax(raw_preds)
+    @abstractmethod
+    def train_on_batch(self, dataset_iter, metrics):
+        """Derived classes should implement this function."""
 
-            self.auc_func.update_state(targets[:, 0], preds[:, 0])
-            auc = self.auc_func.result()
-            self.auc_func.reset_states()
-
-            if use_sigmoid:
-                loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(targets, raw_preds))
-            else:
-                loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(targets, raw_preds))
-
-        self.update_weights(loss, tape)
-        metrics.update_state(loss, auc, 1)
-        return loss, targets, preds
-
-    @tf.function
-    def test_on_batch(self, dataset_iter, metrics, use_sigmoid=False):
-        inputs, targets = next(dataset_iter)
-
-        raw_preds = self.model(inputs, validation_test=True, training=False)
-        preds = tf.nn.sigmoid(raw_preds) if use_sigmoid else tf.nn.softmax(raw_preds)
-
-        self.auc_func.update_state(targets[:, 0], preds[:, 0])
-        auc = self.auc_func.result()
-        self.auc_func.reset_states()
-
-        if use_sigmoid:
-            loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(targets, raw_preds))
-        else:
-            loss = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(targets, raw_preds))
-
-        metrics.update_state(loss, auc, 1)
-        return loss, targets, preds
+    @abstractmethod
+    def test_on_batch(self, dataset_iter, metrics):
+        """Derived classes should implement this function."""

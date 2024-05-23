@@ -55,7 +55,7 @@ class DiPGNN(tf.keras.Model):
         self.embedding_dropout = embedding_dropout
         self.output_dropout = output_dropout
 
-        assert target_type in ['atom', 'bond', 'structure']
+        assert target_type in ['atom', 'path', 'structure']
         self.target_type = target_type
         self.atom_weight = atom_weight
         self.bond_weight = bond_weight
@@ -92,29 +92,30 @@ class DiPGNN(tf.keras.Model):
                 Bond2BondBlock(hidden_size, num_b2b_res_layers, activation=activation, kernel_initializer=kernel_initializer))
             self.bond2atom_blocks.append(
                 Bond2AtomBlock(hidden_size, activation=activation, kernel_initializer=kernel_initializer))
-            self.atom2bond_blocks.append(
-                Atom2BondBlock(hidden_size, activation=activation, kernel_initializer=kernel_initializer))
+            if not ((i_layer == num_layers -1) and (target_type == "atom")):
+                self.atom2bond_blocks.append(
+                    Atom2BondBlock(hidden_size, activation=activation, kernel_initializer=kernel_initializer))
         self.readout_layer = ReadoutLayer(
             hidden_size, num_readout_fc_layers, num_targets=num_targets, activation=activation, kernel_initializer=kernel_initializer)
 
     def call(self, inputs, validation_test=False):
         atom_features, indices_i, indices_j = \
             inputs['atom_features_list'], inputs['id_i_list'], inputs['id_j_list']
-        dist_kji_kj_expand_to_angle, dist_kji_ji_expand_to_angle, angle_kji_reduce_to_dist = \
-            inputs['dist_kj_expand_to_angle_list'], inputs['dist_kj_ji_expand_to_angle_list'], inputs['angle_kj_reduce_to_dist_list']
-        dist_jim_im_expand_to_angle, dist_jim_ji_expand_to_angle, angle_jim_reduce_to_dist = \
-            inputs['dist_im_expand_to_angle_list'], inputs['dist_im_ji_expand_to_angle_list'], inputs['angle_im_reduce_to_dist_list']
-        distances, angles_kj, angles_im, reduce_to_target_indices = \
-            inputs['dist_list'], inputs['angle_kj_list'], inputs['angle_im_list'], inputs['reduce_to_target_indices']
+        bond_mi_id_for_angle_mij_list, bond_ij_id_for_angle_mij_list = \
+            inputs['bond_mi_id_for_angle_mij_list'], inputs['bond_ij_id_for_angle_mij_list']
+        bond_kj_id_for_angle_kji_list, bond_ij_id_for_angle_kji_list = \
+            inputs['bond_kj_id_for_angle_kji_list'], inputs['bond_ij_id_for_angle_kji_list']
+        distances, angles_kji, angles_mij, reduce_to_target_indices = \
+            inputs['dist_list'], inputs['angle_kji_list'], inputs['angle_mij_list'], inputs['reduce_to_target_indices']
 
         rbf = self.rbf_layer(distances)
 
         if self.sbf == "Spherical":
-            sbf_kj = self.sbf_layer(distances, angles_kj, dist_kji_kj_expand_to_angle)
-            sbf_im = self.sbf_layer(distances, angles_im, dist_jim_im_expand_to_angle)
+            sbf_mij = self.sbf_layer(distances, angles_mij, bond_mi_id_for_angle_mij_list)
+            sbf_kji = self.sbf_layer(distances, angles_kji, bond_kj_id_for_angle_kji_list)
         elif self.sbf == "Gaussian":
-            sbf_kj = self.sbf_layer(angles_kj)
-            sbf_im = self.sbf_layer(angles_im)
+            sbf_mij = self.sbf_layer(angles_mij)
+            sbf_kji = self.sbf_layer(angles_kji)
 
         atom_embedding, bond_embedding = self.embedding_layer(atom_features, rbf, indices_i, indices_j)
         if not validation_test:
@@ -123,47 +124,53 @@ class DiPGNN(tf.keras.Model):
 
         if self.target_type == "atom":
             hidden_states = atom_embedding
-        elif self.target_type == "bond":
+        elif self.target_type == "path":
             hidden_states = bond_embedding
         elif self.target_type == "structure":
             hidden_states = self.atom_weight * atom_embedding + self.bond_weight * tf.math.unsorted_segment_sum(
                 bond_embedding, indices_i, tf.shape(atom_embedding)[0])
             hidden_states = tf.math.unsorted_segment_sum(hidden_states, inputs['reduce_to_target_indices'], inputs['n_structures'])
         else:
-            raise ValueError("Only support target_type in ['atom', 'bond', 'structure']")
+            raise ValueError("Only support target_type in ['atom', 'path', 'structure']")
 
         for i_layer in range(self.num_layers):
             bond_embedding = self.bond2bond_blocks[i_layer](bond_embedding,
-                sbf_kj, dist_kji_kj_expand_to_angle, dist_kji_ji_expand_to_angle, angle_kji_reduce_to_dist,
-                sbf_im, dist_jim_im_expand_to_angle, dist_jim_ji_expand_to_angle, angle_jim_reduce_to_dist)
+                sbf_kji, bond_kj_id_for_angle_kji_list, bond_ij_id_for_angle_kji_list,
+                sbf_mij, bond_mi_id_for_angle_mij_list, bond_ij_id_for_angle_mij_list)
             if not validation_test:
                 bond_embedding = tf.nn.dropout(bond_embedding, rate=self.output_dropout)
 
             atom_embedding = self.bond2atom_blocks[i_layer](atom_embedding, bond_embedding, indices_i, indices_j)
-            bond_embedding = self.atom2bond_blocks[i_layer](atom_embedding, bond_embedding, indices_i, indices_j)
-            if not validation_test:
-                bond_embedding = tf.nn.dropout(bond_embedding, rate=self.output_dropout)
-
-            if self.target_type == "structure":
-                hidden_states = self.atom_weight * atom_embedding + self.bond_weight * tf.math.unsorted_segment_sum(
-                    bond_embedding, indices_i, tf.shape(atom_embedding)[0])
+            if (i_layer == self.num_layers -1) and (self.target_type == "atom"):
                 if self.feature_add_or_concat == "add":
-                    hidden_states += tf.math.unsorted_segment_sum(hidden_states, inputs['reduce_to_target_indices'], inputs['n_structures'])
-                elif self.feature_add_or_concat == "concat":
-                    hidden_states = tf.concat([hidden_states, tf.math.unsorted_segment_sum(hidden_states, inputs['reduce_to_target_indices'], inputs['n_structures'])], 1)
+                    hidden_states += atom_embedding
                 else:
-                    raise ValueError("feature_add_or_concat only supports add or concat")
+                    hidden_states = tf.concat([hidden_states, atom_embedding], 1)
             else:
-                if self.target_type == "atom":
+                bond_embedding = self.atom2bond_blocks[i_layer](atom_embedding, bond_embedding, indices_i, indices_j)
+                if not validation_test:
+                    bond_embedding = tf.nn.dropout(bond_embedding, rate=self.output_dropout)
+
+                if self.target_type == "structure":
+                    hidden_states = self.atom_weight * atom_embedding + self.bond_weight * tf.math.unsorted_segment_sum(
+                        bond_embedding, indices_i, tf.shape(atom_embedding)[0])
                     if self.feature_add_or_concat == "add":
-                        hidden_states += atom_embedding
+                        hidden_states += tf.math.unsorted_segment_sum(hidden_states, inputs['reduce_to_target_indices'], inputs['n_structures'])
+                    elif self.feature_add_or_concat == "concat":
+                        hidden_states = tf.concat([hidden_states, tf.math.unsorted_segment_sum(hidden_states, inputs['reduce_to_target_indices'], inputs['n_structures'])], 1)
                     else:
-                        hidden_states = tf.concat([hidden_states, atom_embedding], 1)
-                elif self.target_type == "bond":
-                    if self.feature_add_or_concat == "add":
-                        hidden_states += bond_embedding
-                    else:
-                        hidden_states = tf.concat([hidden_states, bond_embedding], 1)
+                        raise ValueError("feature_add_or_concat only supports add or concat")
+                else:
+                    if self.target_type == "atom":
+                        if self.feature_add_or_concat == "add":
+                            hidden_states += atom_embedding
+                        else:
+                            hidden_states = tf.concat([hidden_states, atom_embedding], 1)
+                    elif self.target_type == "path":
+                        if self.feature_add_or_concat == "add":
+                            hidden_states += bond_embedding
+                        else:
+                            hidden_states = tf.concat([hidden_states, bond_embedding], 1)
 
         outputs = self.readout_layer(hidden_states)
 

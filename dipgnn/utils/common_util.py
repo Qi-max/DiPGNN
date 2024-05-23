@@ -37,7 +37,9 @@ class CommonArgs():
         add_arg('--cutoff', type=float, default=4.5, help='cutoff')
 
         add_arg('--task_type', default="classification", type=str, help='regression or classification')
-        add_arg('--target_type', default="atom", type=str, help='structure, atom or bond')
+        add_arg('--use_sigmoid', action='store_true', help='use sigmoid or softmax')
+
+        add_arg('--target_type', default="atom", type=str, help='structure, atom or path')
         add_arg('--target_col', type=str, default="targets", help='target_col')
         add_arg('--target_name', type=str, default="", help='target_name')
         add_arg('--num_targets', type=int, default=2, help='num_targets')
@@ -122,7 +124,7 @@ def setup_imports():
         project_root = Path(__file__).resolve().absolute().parent.parent.parent
         logging.info(f"Project root: {project_root}")
 
-        import_keys = ["data", "models", "tasks"]
+        import_keys = ["data", "models", "tasks", "trainers"]
         for key in import_keys:
             for f in (project_root / "dipgnn" / key).rglob("*.py"):
                 _import_local_file(f, project_root=project_root)

@@ -44,14 +44,14 @@ class SphericalBasisLayer(layers.Layer):
             for j in range(num_radial):
                 self.bessel_funcs.append(sym.lambdify([x], self.bessel_formulas[i][j], 'tensorflow'))
 
-    def call(self, d, Angles, id_expand_kj):
+    def call(self, d, Angles, bond_ids_for_angle):
         d_scaled = d * self.inv_cutoff
         rbf = [f(d_scaled) for f in self.bessel_funcs]
         rbf = tf.stack(rbf, axis=1)
 
         d_cutoff = self.envelope(d_scaled)
         rbf_env = d_cutoff[:, None] * rbf
-        rbf_env = tf.gather(rbf_env, id_expand_kj)
+        rbf_env = tf.gather(rbf_env, bond_ids_for_angle)
 
         cbf = [f(Angles) for f in self.sph_funcs]
         cbf = tf.stack(cbf, axis=1)

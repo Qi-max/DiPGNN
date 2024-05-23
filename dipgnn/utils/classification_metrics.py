@@ -2,6 +2,10 @@ import tensorflow as tf
 
 
 class ClassificationMetrics:
+    """
+    Note: A significant portion of the code is adapted from dimenet (https://github.com/gasteigerjo/dimenet).
+    """
+
     def __init__(self, tag, targets, ex=None):
         self.tag = tag
         self.targets = targets
@@ -32,7 +36,7 @@ class ClassificationMetrics:
 
     def keys(self):
         keys = [f'loss_{self.tag}', f'mean_auc_{self.tag}']
-        keys.extend([key + '_' + self.tag for key in self.targets])
+        keys.extend(["{}_{}".format(key, self.tag) for key in self.targets])
         return keys
 
     def result(self):

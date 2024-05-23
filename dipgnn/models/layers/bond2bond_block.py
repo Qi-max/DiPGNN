@@ -46,24 +46,24 @@ class Bond2BondBlock(layers.Layer):
         self.residual_layers = Sequential(self.residual_layers)
 
     def call(self, bond_embedding,
-             sbf_kj, dist_kji_kj_expand_to_angle, dist_kji_ji_expand_to_angle, angle_kji_reduce_to_dist,
-             sbf_im, dist_jim_im_expand_to_angle, dist_jim_ji_expand_to_angle, angle_jim_reduce_to_dist):
+             sbf_mij, bond_mi_id_for_angle_mij_list, bond_ij_id_for_angle_mij_list,
+             sbf_kji, bond_kj_id_for_angle_kji_list, bond_ij_id_for_angle_kji_list,):
 
-        bond_embedding_kji_kj = tf.gather(bond_embedding, dist_kji_kj_expand_to_angle)
-        bond_embedding_kji_ji = tf.gather(bond_embedding, dist_kji_ji_expand_to_angle)
-        bond_kji_updated = self.bond_kj_fc_layers(tf.concat([bond_embedding_kji_kj, bond_embedding_kji_ji], axis=-1))
-        angle_kji_attentions = self.angle_ijk_attention_layers(sbf_kj)
+        bond_embedding_mij_mi = tf.gather(bond_embedding, bond_mi_id_for_angle_mij_list)
+        bond_embedding_mij_ij = tf.gather(bond_embedding, bond_ij_id_for_angle_mij_list)
+        bond_mij_updated = self.bond_im_fc_layers(tf.concat([bond_embedding_mij_mi, bond_embedding_mij_ij], axis=-1))
+        angle_mij_attentions = self.angle_ijm_attention_layers(sbf_mij)
 
-        bond_embedding_jim_im = tf.gather(bond_embedding, dist_jim_im_expand_to_angle)
-        bond_embedding_jim_ji = tf.gather(bond_embedding, dist_jim_ji_expand_to_angle)
-        bond_jim_updated = self.bond_im_fc_layers(tf.concat([bond_embedding_jim_im, bond_embedding_jim_ji], axis=-1))
-        angle_jim_attentions = self.angle_ijm_attention_layers(sbf_im)
+        bond_embedding_kji_kj = tf.gather(bond_embedding, bond_kj_id_for_angle_kji_list)
+        bond_embedding_kji_ij = tf.gather(bond_embedding, bond_ij_id_for_angle_kji_list)
+        bond_kji_updated = self.bond_kj_fc_layers(tf.concat([bond_embedding_kji_kj, bond_embedding_kji_ij], axis=-1))
+        angle_kji_attentions = self.angle_ijk_attention_layers(sbf_kji)
 
         num_bonds = tf.shape(bond_embedding)[0]
         bond_embedding += \
             self.bond_preprocess_fc_layer(tf.concat([
-                tf.math.unsorted_segment_sum(angle_kji_attentions * bond_kji_updated[:, :1] * bond_kji_updated[:, 1:], angle_kji_reduce_to_dist, num_bonds),
-                tf.math.unsorted_segment_sum(angle_jim_attentions * bond_jim_updated[:, :1] * bond_jim_updated[:, 1:], angle_jim_reduce_to_dist, num_bonds)
+                tf.math.unsorted_segment_sum(angle_mij_attentions * bond_mij_updated[:, :1] * bond_mij_updated[:, 1:], bond_ij_id_for_angle_mij_list, num_bonds),
+                tf.math.unsorted_segment_sum(angle_kji_attentions * bond_kji_updated[:, :1] * bond_kji_updated[:, 1:], bond_ij_id_for_angle_kji_list, num_bonds),
             ], axis=-1))
         bond_embedding = self.residual_layers(bond_embedding)
         return bond_embedding
