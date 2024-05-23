@@ -1,34 +1,35 @@
 # DiPGNN
 
-**[Paper](https://www.science.org/doi/10.1126/sciadv.adk2799)** 
+**[Link to Paper](https://www.science.org/doi/10.1126/sciadv.adk2799)** 
 
-This repository contains the official TensorFlow implementation of the research paper:
-
-Predicting the Pathways of String-like Motions in Metallic Glasses via Path-Featurizing Graph Neural Networks. Science Advances, 10, eadk2799 (2024). 
+This repository hosts the TensorFlow implementation of the research paper titled "Predicting the Pathways of String-like Motions in Metallic Glasses via Path-Featurizing Graph Neural Networks," published in Science Advances, 10: eadk2799 (2024).
 
 It includes the code for preparing graph data and training the model.
 
 ## Content ##
-0. [Prepare graph data](#Prepare Graph Data)
-0. [Training the Model](#Training the Model)
-0. [File Structure](#file-structure)
+0. [Prepare Graph Data](#prepare-graph-data)
+0. [Training the Model](#training-the-model)
+0. [Code Structure](#code-structure)
 0. [Citation](#citation)
 0. [Acknowledgement](#acknowledgement)
 
 ## Prepare Graph Data ##
 
-As we are focused on the glass structures, which often at least contain thousands of atoms, thus generating the graph data can be time-consuming. Therefore, we choose to save the graph data into files, avoiding regenerating the graph data in every epoch.
+As we are focusing on glass structures which typically contain thousands of atoms, making the generation of graph data time-consuming. To address this, we store the graph data in files to avoid regenerating it in every epoch.
 
-The glass structures should be converted to pymatgen Structure objects. Then
-one can refer to the DataContainer.from_structures() method in DiPGNN_internal/dipgnn_simple/data/data_container.py to convert your original data into graph data.
+The glass structures are first converted to Pymatgen Structure objects. Then
+one can refer to the ```DataContainer.from_structures()``` method in ```DiPGNN/dipgnn/data/data_container.py``` to convert your original data into graph data.
 
 Here is an example:
 
-Suppose we have N glass configurations with target labels for paths. And the configuration is stored in the format of LAMMPS dump file.
+Suppose we have *N* glass configurations, each with associated target labels for certain paths,  and these configurations are stored in the format of LAMMPS dump files.
 
 Step 1: generate the graph data and write them to pickled files
 
 ```bash
+from dipgnn.data.data_container import DataContainer
+from dipgnn.utils.data import dump_to_pmg_structure
+
 for sample in range(N):
     dump_file = "path to glass{}.dump".format(sample)
     species_dict = {1: "Al", 2: "Sm"}
@@ -45,15 +46,15 @@ for sample in range(N):
         neighbor_scheme="pmg_cutoff",
         neighbor_cutoff=4.5,
         atom_feature_scheme="specie_onehot",
-        specie_to_features={v: k for k, v in species_dict.items()},  # 为什么每个label后面都有个1呢
+        specie_to_features={v: k for k, v in species_dict.items()},  
         output_graph_data=True,
         output_targets=True,
         save_graph_data_batch_size=1,
         output_path=output_path)
 ```
 
-Step 2: prepare a pandas dataframe (graph_data_file_df) containing the path to the saved graph data file.
-The format can be pd.DataFrame(index=range(N), columns=["data_file_path"])
+Step 2: prepare a pandas dataframe ```${graph_data_file_df}``` containing the path to the saved graph data file.
+The format can be ```pd.DataFrame(index=range(N), columns=["data_file_path"])```
 
 
 ## Training the Model ##
@@ -89,34 +90,28 @@ python DiPGNN/dipgnn/main.py \
   --num_targets 2
 ```
 
-## File Structure ##
+## Code Structure ##
 
-1. [`data`](data) Contains the code for the data container and data provider of DiPGNN.
-2. [`models`](models) Includes the code for the DiPGNN model and its layers.
-3. [`tasks`](tasks) Contains the code for classification and regression tasks.
-4. [`trainers`](trainers) Includes the code for classification and regression trainers.
-5. [`utils`](utils) Contains various utility functions.
-6. [`main.py`](main.py) The main code for training the model.
+1. [`data`](data): code for the data container and data provider of DiPGNN.
+2. [`models`](models): code for the DiPGNN model and its layers.
+3. [`tasks`](tasks): code for classification and regression tasks.
+4. [`trainers`](trainers): code for classification and regression trainers.
+5. [`utils`](utils): various utility functions.
+6. [`main.py`](main.py): the main code for training the model.
 
 
 ## Citation ##
-
-Please consider citing the works below if this repository is helpful:
-
-- [DiPGNN]():
-    ```bibtex
-    @inproceedings{
-        dipgnn,
-        title={{Predicting the Pathways of String-like Motions in Metallic Glasses via Path-Featurizing Graph Neural Networks}}, 
-        author={Qi Wang, Long-Fei Zhang, Zhen-Ya Zhou, Hai-Bin Yu},
-        url={https://www.science.org/doi/10.1126/sciadv.adk2799},
-        volume={10},
-        pages={eadk2799},
-        year={2024},
-    }
-    ```
-
+```bibtex
+@article{dipgnn,
+    title={Predicting the Pathways of String-like Motions in Metallic Glasses via Path-Featurizing Graph Neural Networks}, 
+    author={Qi Wang, Long-Fei Zhang, Zhen-Ya Zhou, Hai-Bin Yu},
+    url={https://www.science.org/doi/10.1126/sciadv.adk2799},
+    volume={10},
+    pages={eadk2799},
+    year={2024}
+}
+```
 
 ## Acknowledgement ##
 
-The implementation is based on [TensorFlow](https://www.tensorflow.org/) and contains functions from [dimenet](https://github.com/gasteigerjo/dimenet).
+The implementation is built on [TensorFlow](https://www.tensorflow.org/) and incorporates functions from [DimeNet](https://github.com/gasteigerjo/dimenet).
