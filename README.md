@@ -36,13 +36,13 @@ for sample in range(N):
   
     struct = dump_to_pmg_structure(dump_file, species_dict)
   
-    dc = DataContainerV6.from_structures(
+    dc = DataContainer.from_structures(
         structure_list=[struct],
         # the dict denotes the (source_id, target_id) and the target value, the atom id starts from 0
         targets_list=[{(2, 10): [0, 1], (3, 7): [1, 0], ...}],  
         target_type="path",
         source_ids=["sample{}".format(sample)],
-        task_type="regression",
+        task_type="classification",
         neighbor_scheme="pmg_cutoff",
         neighbor_cutoff=4.5,
         atom_feature_scheme="specie_onehot",
